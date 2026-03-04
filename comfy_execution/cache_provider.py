@@ -2,7 +2,6 @@ from typing import Any, Optional, Tuple, List
 import hashlib
 import json
 import logging
-import math
 import threading
 
 # Public types — source of truth is comfy_api.latest._caching
@@ -57,8 +56,9 @@ def _clear_cache_providers() -> None:
 def _canonicalize(obj: Any) -> Any:
     # Convert to canonical JSON-serializable form with deterministic ordering.
     # Frozensets have non-deterministic iteration order between Python sessions.
+    # Raises ValueError for non-cacheable types (Unhashable, unknown) so that
+    # _serialize_cache_key returns None and external caching is skipped.
     if isinstance(obj, frozenset):
-        # Sort frozenset items for deterministic ordering
         return ("__frozenset__", sorted(
             [_canonicalize(item) for item in obj],
             key=lambda x: json.dumps(x, sort_keys=True)
@@ -78,12 +78,8 @@ def _canonicalize(obj: Any) -> Any:
         return obj
     elif isinstance(obj, bytes):
         return ("__bytes__", obj.hex())
-    elif hasattr(obj, 'value'):
-        # Handle Unhashable class from ComfyUI
-        return ("__unhashable__", _canonicalize(getattr(obj, 'value', None)))
     else:
-        # For other types, use repr as fallback
-        return ("__repr__", repr(obj))
+        raise ValueError(f"Cannot canonicalize type: {type(obj).__name__}")
 
 
 def _serialize_cache_key(cache_key: Any) -> Optional[str]:
@@ -98,25 +94,20 @@ def _serialize_cache_key(cache_key: Any) -> Optional[str]:
         return None
 
 
-def _contains_nan(obj: Any) -> bool:
-    # NaN != NaN so local cache never hits, but serialized NaN would match.
-    # Skip external caching for keys containing NaN.
-    if isinstance(obj, float):
-        try:
-            return math.isnan(obj)
-        except (TypeError, ValueError):
-            return False
-    if hasattr(obj, 'value'):  # Unhashable class
-        val = getattr(obj, 'value', None)
-        if isinstance(val, float):
-            try:
-                return math.isnan(val)
-            except (TypeError, ValueError):
-                return False
+def _contains_self_unequal(obj: Any) -> bool:
+    # Local cache matches by ==. Values where not (x == x) (NaN, etc.) will
+    # never hit locally, but serialized form would match externally. Skip these.
+    try:
+        if not (obj == obj):
+            return True
+    except Exception:
+        return True
     if isinstance(obj, (frozenset, tuple, list, set)):
-        return any(_contains_nan(item) for item in obj)
+        return any(_contains_self_unequal(item) for item in obj)
     if isinstance(obj, dict):
-        return any(_contains_nan(k) or _contains_nan(v) for k, v in obj.items())
+        return any(_contains_self_unequal(k) or _contains_self_unequal(v) for k, v in obj.items())
+    if hasattr(obj, 'value'):
+        return _contains_self_unequal(obj.value)
     return False
 
 

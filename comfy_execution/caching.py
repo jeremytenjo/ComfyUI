@@ -238,7 +238,7 @@ class BasicCache:
     async def _notify_providers_store(self, node_id, cache_key, value):
         from comfy_execution.cache_provider import (
             _has_cache_providers, _get_cache_providers,
-            CacheValue, _contains_nan, _logger
+            CacheValue, _contains_self_unequal, _logger
         )
 
         if self._is_subcache:
@@ -247,7 +247,7 @@ class BasicCache:
             return
         if not self._is_external_cacheable_value(value):
             return
-        if _contains_nan(cache_key):
+        if _contains_self_unequal(cache_key):
             return
 
         context = self._build_context(node_id, cache_key)
@@ -273,14 +273,14 @@ class BasicCache:
     async def _check_providers_lookup(self, node_id, cache_key):
         from comfy_execution.cache_provider import (
             _has_cache_providers, _get_cache_providers,
-            CacheValue, _contains_nan, _logger
+            CacheValue, _contains_self_unequal, _logger
         )
 
         if self._is_subcache:
             return None
         if not _has_cache_providers():
             return None
-        if _contains_nan(cache_key):
+        if _contains_self_unequal(cache_key):
             return None
 
         context = self._build_context(node_id, cache_key)
