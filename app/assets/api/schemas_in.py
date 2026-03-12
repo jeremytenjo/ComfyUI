@@ -333,13 +333,14 @@ class UploadAssetSpec(BaseModel):
 
     @model_validator(mode="after")
     def _validate_order(self):
-        if self.tags:
-            root = self.tags[0]
-            if root not in {"models", "input", "output"}:
-                raise ValueError("first tag must be one of: models, input, output")
-            if root == "models":
-                if len(self.tags) < 2:
-                    raise ValueError(
-                        "models uploads require a category tag as the second tag"
-                    )
+        if not self.tags:
+            raise ValueError("at least one tag is required for uploads")
+        root = self.tags[0]
+        if root not in {"models", "input", "output"}:
+            raise ValueError("first tag must be one of: models, input, output")
+        if root == "models":
+            if len(self.tags) < 2:
+                raise ValueError(
+                    "models uploads require a category tag as the second tag"
+                )
         return self
