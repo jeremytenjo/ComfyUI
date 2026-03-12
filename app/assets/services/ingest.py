@@ -137,6 +137,7 @@ def _register_existing_asset(
     tag_origin: str = "manual",
     owner_id: str = "",
     mime_type: str | None = None,
+    preview_id: str | None = None,
 ) -> RegisterAssetResult:
     user_metadata = user_metadata or {}
 
@@ -148,14 +149,22 @@ def _register_existing_asset(
         if mime_type and asset.mime_type != mime_type:
             update_asset_hash_and_mime(session, asset_id=asset.id, mime_type=mime_type)
 
+        if preview_id:
+            if not reference_exists(session, preview_id):
+                preview_id = None
+
         ref, ref_created = get_or_create_reference(
             session,
             asset_id=asset.id,
             owner_id=owner_id,
             name=name,
+            preview_id=preview_id,
         )
 
         if not ref_created:
+            if preview_id and ref.preview_id != preview_id:
+                ref.preview_id = preview_id
+
             tag_names = get_reference_tags(session, reference_id=ref.id)
             result = RegisterAssetResult(
                 ref=extract_reference_data(ref),
@@ -278,6 +287,8 @@ def upload_from_temp_path(
             tags=tags or [],
             tag_origin="manual",
             owner_id=owner_id,
+            mime_type=mime_type,
+            preview_id=preview_id,
         )
         return UploadResult(
             ref=result.ref,
@@ -412,6 +423,7 @@ def create_from_hash(
     user_metadata: dict | None = None,
     owner_id: str = "",
     mime_type: str | None = None,
+    preview_id: str | None = None,
 ) -> UploadResult | None:
     canonical = hash_str.strip().lower()
 
@@ -426,6 +438,7 @@ def create_from_hash(
             tag_origin="manual",
             owner_id=owner_id,
             mime_type=mime_type,
+            preview_id=preview_id,
         )
     except ValueError:
         logging.warning("create_from_hash: no asset found for hash %s", canonical)

@@ -349,6 +349,7 @@ async def create_asset_from_hash_route(request: web.Request) -> web.Response:
         user_metadata=body.user_metadata,
         owner_id=USER_MANAGER.get_request_user_id(request),
         mime_type=body.mime_type,
+        preview_id=body.preview_id,
     )
     if result is None:
         return _build_error_response(
@@ -436,6 +437,7 @@ async def upload_asset(request: web.Request) -> web.Response:
                 user_metadata=spec.user_metadata or {},
                 owner_id=owner_id,
                 mime_type=spec.mime_type,
+                preview_id=spec.preview_id,
             )
             if result is None:
                 delete_temp_file_if_exists(parsed.tmp_path)

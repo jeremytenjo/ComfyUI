@@ -124,6 +124,7 @@ class CreateFromHashBody(BaseModel):
     tags: list[str] = Field(default_factory=list)
     user_metadata: dict[str, Any] = Field(default_factory=dict)
     mime_type: str | None = None
+    preview_id: str | None = None
 
     @field_validator("hash")
     @classmethod
