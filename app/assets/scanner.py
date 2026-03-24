@@ -347,6 +347,7 @@ def build_asset_specs(
     return specs, tag_pool, skipped
 
 
+
 def insert_asset_specs(specs: list[SeedAssetSpec], tag_pool: set[str]) -> int:
     """Insert asset specs into database, returning count of created refs."""
     if not specs:
@@ -454,10 +455,8 @@ def enrich_asset(
                 checkpoint = hash_checkpoints.get(file_path)
                 if checkpoint is not None:
                     cur_stat = os.stat(file_path, follow_symlinks=True)
-                    if (
-                        checkpoint.mtime_ns != get_mtime_ns(cur_stat)
-                        or checkpoint.file_size != cur_stat.st_size
-                    ):
+                    if (checkpoint.mtime_ns != get_mtime_ns(cur_stat)
+                            or checkpoint.file_size != cur_stat.st_size):
                         checkpoint = None
                         hash_checkpoints.pop(file_path, None)
                     else:
@@ -484,9 +483,7 @@ def enrich_asset(
             stat_after = os.stat(file_path, follow_symlinks=True)
             mtime_after = get_mtime_ns(stat_after)
             if mtime_before != mtime_after:
-                logging.warning(
-                    "File modified during hashing, discarding hash: %s", file_path
-                )
+                logging.warning("File modified during hashing, discarding hash: %s", file_path)
             else:
                 full_hash = f"blake3:{digest}"
                 metadata_ok = not extract_metadata or metadata is not None

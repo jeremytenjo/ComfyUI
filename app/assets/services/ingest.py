@@ -277,9 +277,7 @@ def _register_existing_asset(
             return result
 
         new_meta = dict(user_metadata)
-        computed_filename = (
-            compute_relative_filename(ref.file_path) if ref.file_path else None
-        )
+        computed_filename = compute_relative_filename(ref.file_path) if ref.file_path else None
         if computed_filename:
             new_meta["filename"] = computed_filename
 
@@ -309,6 +307,7 @@ def _register_existing_asset(
         session.commit()
 
         return result
+
 
 
 def _update_metadata_with_filename(
@@ -491,7 +490,8 @@ def register_file_in_place(
 
     size_bytes, mtime_ns = get_size_and_mtime_ns(abs_path)
     content_type = mime_type or (
-        mimetypes.guess_type(abs_path, strict=False)[0] or "application/octet-stream"
+        mimetypes.guess_type(abs_path, strict=False)[0]
+        or "application/octet-stream"
     )
 
     ingest_result = _ingest_file_from_path(
@@ -542,8 +542,7 @@ def create_from_hash(
         result = _register_existing_asset(
             asset_hash=canonical,
             name=_sanitize_filename(
-                name,
-                fallback=canonical.split(":", 1)[1] if ":" in canonical else canonical,
+                name, fallback=canonical.split(":", 1)[1] if ":" in canonical else canonical
             ),
             user_metadata=user_metadata or {},
             tags=tags or [],

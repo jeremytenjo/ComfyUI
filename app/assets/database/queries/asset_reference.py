@@ -66,16 +66,12 @@ def convert_metadata_to_rows(key: str, value) -> list[dict]:
 
     if isinstance(value, list):
         if all(_check_is_scalar(x) for x in value):
-            return [
-                _scalar_to_row(key, i, x) for i, x in enumerate(value) if x is not None
-            ]
-        return [
-            {"key": key, "ordinal": i, "val_json": x}
-            for i, x in enumerate(value)
-            if x is not None
-        ]
+            return [_scalar_to_row(key, i, x) for i, x in enumerate(value) if x is not None]
+        return [{"key": key, "ordinal": i, "val_json": x} for i, x in enumerate(value) if x is not None]
 
     return [{"key": key, "ordinal": 0, "val_json": value}]
+
+
 
 
 def get_reference_by_id(
@@ -664,11 +660,8 @@ def upsert_reference(
             )
         )
         .values(
-            asset_id=asset_id,
-            mtime_ns=int(mtime_ns),
-            is_missing=False,
-            deleted_at=None,
-            updated_at=now,
+            asset_id=asset_id, mtime_ns=int(mtime_ns), is_missing=False,
+            deleted_at=None, updated_at=now,
         )
     )
     res2 = session.execute(upd)
@@ -858,7 +851,9 @@ def bulk_update_is_missing(
     return total
 
 
-def update_is_missing_by_asset_id(session: Session, asset_id: str, value: bool) -> int:
+def update_is_missing_by_asset_id(
+    session: Session, asset_id: str, value: bool
+) -> int:
     """Set is_missing flag for ALL references belonging to an asset.
 
     Returns: Number of rows updated
@@ -1025,7 +1020,9 @@ def get_references_by_paths_and_asset_ids(
         pairwise = sa.tuple_(AssetReference.file_path, AssetReference.asset_id).in_(
             chunk
         )
-        result = session.execute(select(AssetReference.file_path).where(pairwise))
+        result = session.execute(
+            select(AssetReference.file_path).where(pairwise)
+        )
         winners.update(result.scalars().all())
 
     return winners
