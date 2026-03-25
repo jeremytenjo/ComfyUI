@@ -16,6 +16,7 @@ SERVER_FEATURE_FLAGS: dict[str, Any] = {
     "extension": {"manager": {"supports_v4": True}},
     "node_replacements": True,
     "assets": args.enable_assets,
+    "download_api": args.enable_download_api,
 }
 
 

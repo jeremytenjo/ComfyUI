@@ -224,6 +224,8 @@ parser.add_argument("--user-directory", type=is_valid_directory, default=None, h
 
 parser.add_argument("--enable-compress-response-body", action="store_true", help="Enable compressing response body.")
 
+parser.add_argument("--enable-download-api", action="store_true", help="Enable the model download API. When set, ComfyUI exposes endpoints that allow downloading model files directly into the models directory. Only HTTPS downloads from allowed hosts (huggingface.co, civitai.com) are permitted.")
+
 parser.add_argument(
     "--comfy-api-base",
     type=str,

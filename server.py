@@ -43,6 +43,7 @@ from app.model_manager import ModelFileManager
 from app.custom_node_manager import CustomNodeManager
 from app.subgraph_manager import SubgraphManager
 from app.node_replace_manager import NodeReplaceManager
+from app.download_manager import DownloadManager
 from typing import Optional, Union
 from api_server.routes.internal.internal_routes import InternalRoutes
 from protocol import BinaryEventTypes
@@ -205,6 +206,7 @@ class PromptServer():
         self.subgraph_manager = SubgraphManager()
         self.node_replace_manager = NodeReplaceManager()
         self.internal_routes = InternalRoutes(self)
+        self.download_manager = DownloadManager(self) if args.enable_download_api else None
         self.supports = ["custom_nodes_from_web"]
         self.prompt_queue = execution.PromptQueue(self)
         self.loop = loop
@@ -1028,9 +1030,91 @@ class PromptServer():
 
             return web.Response(status=200)
 
+        # -- Download API (gated behind --enable-download-api) --
+
+        def _require_download_api(handler):
+            async def wrapper(request):
+                if self.download_manager is None:
+                    return web.json_response(
+                        {"error": "Download API is not enabled. Start ComfyUI with --enable-download-api."},
+                        status=403,
+                    )
+                return await handler(request)
+            return wrapper
+
+        @routes.post("/download/model")
+        @_require_download_api
+        async def post_download_model(request):
+            json_data = await request.json()
+            url = json_data.get("url")
+            directory = json_data.get("directory")
+            filename = json_data.get("filename")
+            client_id = json_data.get("client_id")
+
+            if not url or not directory or not filename:
+                return web.json_response(
+                    {"error": "Missing required fields: url, directory, filename"},
+                    status=400,
+                )
+
+            task, err = await self.download_manager.start_download(url, directory, filename, client_id=client_id)
+            if err:
+                status = 409 if "already" in err.lower() else 400
+                return web.json_response({"error": err}, status=status)
+
+            return web.json_response(task.to_dict(), status=201)
+
+        @routes.get("/download/status")
+        @_require_download_api
+        async def get_download_status(request):
+            client_id = request.rel_url.query.get("client_id")
+            return web.json_response(self.download_manager.get_all_tasks(client_id=client_id))
+
+        @routes.get("/download/status/{task_id}")
+        @_require_download_api
+        async def get_download_task_status(request):
+            task_id = request.match_info["task_id"]
+            task_data = self.download_manager.get_task(task_id)
+            if task_data is None:
+                return web.json_response({"error": "Download not found"}, status=404)
+            return web.json_response(task_data)
+
+        @routes.post("/download/pause/{task_id}")
+        @_require_download_api
+        async def post_download_pause(request):
+            task_id = request.match_info["task_id"]
+            err = self.download_manager.pause_download(task_id)
+            if err:
+                return web.json_response({"error": err}, status=400)
+            return web.json_response({"status": "paused"})
+
+        @routes.post("/download/resume/{task_id}")
+        @_require_download_api
+        async def post_download_resume(request):
+            task_id = request.match_info["task_id"]
+            err = self.download_manager.resume_download(task_id)
+            if err:
+                return web.json_response({"error": err}, status=400)
+            return web.json_response({"status": "resumed"})
+
+        @routes.post("/download/cancel/{task_id}")
+        @_require_download_api
+        async def post_download_cancel(request):
+            task_id = request.match_info["task_id"]
+            err = self.download_manager.cancel_download(task_id)
+            if err:
+                return web.json_response({"error": err}, status=400)
+            return web.json_response({"status": "cancelled"})
+
     async def setup(self):
         timeout = aiohttp.ClientTimeout(total=None) # no timeout
         self.client_session = aiohttp.ClientSession(timeout=timeout)
+        if self.download_manager is not None:
+            self.app.on_cleanup.append(self._cleanup_download_manager)
+
+    async def _cleanup_download_manager(self, app):
+        if self.download_manager is not None:
+            await self.download_manager.close()
 
     def add_routes(self):
         self.user_manager.add_routes(self.routes)
