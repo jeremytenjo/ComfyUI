@@ -2,7 +2,7 @@
 
 Drop-in replacement for comfy_api.latest._util type imports in sealed workers
 that do not have torch installed. Contains only data type definitions (TrimeshData,
-PLY, NPZ, etc.) with numpy-only dependencies.
+etc.) with numpy-only dependencies.
 
 Usage in serializers:
     if _IMPORT_TORCH:
@@ -12,7 +12,5 @@ Usage in serializers:
 """
 
 from .trimesh_types import TrimeshData
-from .ply_types import PLY
-from .npz_types import NPZ
 
-__all__ = ["TrimeshData", "PLY", "NPZ"]
+__all__ = ["TrimeshData"]
