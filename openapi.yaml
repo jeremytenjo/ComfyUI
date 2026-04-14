@@ -336,7 +336,12 @@ paths:
       operationId: getHistory
       tags: [history]
       summary: Get execution history
+      deprecated: true
       description: |
+        **Deprecated.** Superseded by `GET /api/jobs`, which returns the same
+        execution records in a paginated, filterable format. Planned for removal
+        no earlier than a future major release; sunset timeline TBD.
+
         Returns a dictionary keyed by prompt_id. Each value is a HistoryEntry
         containing prompt metadata, outputs, status, and node meta.
       parameters:
@@ -364,6 +369,11 @@ paths:
       operationId: manageHistory
       tags: [history]
       summary: Clear or delete history entries
+      deprecated: true
+      description: |
+        **Deprecated.** Superseded by the forthcoming job-management endpoints
+        under `/api/jobs`. Planned for removal no earlier than a future major
+        release; sunset timeline TBD.
       parameters:
         - $ref: "#/components/parameters/ComfyUserHeader"
       requestBody:
@@ -381,6 +391,11 @@ paths:
       operationId: getHistoryByPromptId
       tags: [history]
       summary: Get history for a specific prompt
+      deprecated: true
+      description: |
+        **Deprecated.** Superseded by `GET /api/jobs/{job_id}`, which returns
+        the same execution record. Planned for removal no earlier than a future
+        major release; sunset timeline TBD.
       parameters:
         - $ref: "#/components/parameters/ComfyUserHeader"
         - name: prompt_id
