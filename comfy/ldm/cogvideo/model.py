@@ -378,7 +378,7 @@ class CogVideoXTransformer3DModel(nn.Module):
             temporal_interpolation_scale=temporal_interpolation_scale,
             use_positional_embeddings=not use_rotary_positional_embeddings,
             use_learned_positional_embeddings=use_learned_positional_embeddings,
-            device=device, dtype=torch.float32, operations=operations,
+            device=device, dtype=dtype, operations=operations,
         )
 
         # 2. Time embedding
