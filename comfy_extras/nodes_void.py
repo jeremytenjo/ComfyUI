@@ -146,11 +146,13 @@ class VOIDInpaintConditioning(io.ComfyNode):
 
         inpaint_latents = torch.cat([mask_latents, masked_video_latents], dim=1)
 
-        # CogVideoX.concat_cond() applies process_latent_in (x scale_factor) to
-        # concat_latent_image before feeding it to the transformer. Pre-divide here
-        # so the net scaling is identity — the VOID model expects raw VAE latents.
-        scale_factor = comfy.latent_formats.CogVideoX().scale_factor
-        inpaint_latents = inpaint_latents / scale_factor
+        # CogVideoX-Fun was trained with Diffusers convention where VAE latents
+        # are scaled by 0.7 (vae.config.scaling_factor). CogVideoX.concat_cond()
+        # applies process_latent_in (×sf=1.153) to the stored conditioning.
+        # Pre-multiply by 0.7 so the model sees the correct magnitude:
+        #   stored = vae_output × 0.7  →  after process_in: (vae_output×0.7)×sf = raw×0.7
+        DIFFUSERS_SCALING_FACTOR = 0.7
+        inpaint_latents = inpaint_latents * DIFFUSERS_SCALING_FACTOR
 
         positive = node_helpers.conditioning_set_values(
             positive, {"concat_latent_image": inpaint_latents}
@@ -167,12 +169,151 @@ class VOIDInpaintConditioning(io.ComfyNode):
         return io.NodeOutput(positive, negative, {"samples": noise_latent})
 
 
+class VOIDWarpedNoise(io.ComfyNode):
+    """Generate optical-flow warped noise for VOID Pass 2 refinement.
+
+    Takes the Pass 1 output video and produces temporally-correlated noise
+    by warping Gaussian noise along optical flow vectors. This noise is used
+    as the initial latent for Pass 2, resulting in better temporal consistency.
+
+    Requires: pip install rp (auto-installs Go-with-the-Flow dependencies)
+    """
+
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="VOIDWarpedNoise",
+            category="latent/video",
+            inputs=[
+                io.Image.Input("video", tooltip="Pass 1 output video frames [T, H, W, 3]"),
+                io.Int.Input("width", default=672, min=16, max=nodes.MAX_RESOLUTION, step=8),
+                io.Int.Input("height", default=384, min=16, max=nodes.MAX_RESOLUTION, step=8),
+                io.Int.Input("length", default=49, min=1, max=nodes.MAX_RESOLUTION, step=1,
+                             tooltip="Number of pixel frames"),
+                io.Int.Input("batch_size", default=1, min=1, max=64),
+            ],
+            outputs=[
+                io.Latent.Output(display_name="warped_noise"),
+            ],
+        )
+
+    @classmethod
+    def execute(cls, video, width, height, length, batch_size) -> io.NodeOutput:
+        import numpy as np
+
+        try:
+            import rp
+            rp.r._pip_import_autoyes = True
+            rp.git_import('CommonSource')
+            import rp.git.CommonSource.noise_warp as nw
+        except ImportError:
+            raise RuntimeError(
+                "VOIDWarpedNoise requires the 'rp' package. Install with: pip install rp"
+            )
+
+        temporal_compression = 4
+        latent_t = ((length - 1) // temporal_compression) + 1
+        latent_h = height // 8
+        latent_w = width // 8
+
+        vid = video[:length].cpu().numpy()
+        vid_uint8 = (vid * 255).clip(0, 255).astype(np.uint8)
+
+        frames = [vid_uint8[i] for i in range(vid_uint8.shape[0])]
+        frames = rp.resize_images_to_hold(frames, height=height, width=width)
+        frames = rp.crop_images(frames, height=height, width=width, origin='center')
+        frames = rp.as_numpy_array(frames)
+
+        FRAME = 2**-1
+        FLOW = 2**3
+        LATENT_SCALE = 8
+
+        warp_output = nw.get_noise_from_video(
+            frames,
+            remove_background=False,
+            visualize=False,
+            save_files=False,
+            noise_channels=16,
+            output_folder=None,
+            resize_frames=FRAME,
+            resize_flow=FLOW,
+            downscale_factor=round(FRAME * FLOW) * LATENT_SCALE,
+        )
+
+        warped_np = warp_output.numpy_noises  # (T, H, W, C)
+        if warped_np.dtype == np.float16:
+            warped_np = warped_np.astype(np.float32)
+
+        import cv2
+
+        if warped_np.shape[0] != latent_t:
+            indices = np.linspace(0, warped_np.shape[0] - 1, latent_t).astype(int)
+            warped_np = warped_np[indices]
+
+        if warped_np.shape[1] != latent_h or warped_np.shape[2] != latent_w:
+            resized = []
+            for t_idx in range(latent_t):
+                frame = warped_np[t_idx]
+                ch_resized = [
+                    cv2.resize(frame[:, :, c], (latent_w, latent_h),
+                               interpolation=cv2.INTER_LINEAR)
+                    for c in range(frame.shape[2])
+                ]
+                resized.append(np.stack(ch_resized, axis=2))
+            warped_np = np.stack(resized, axis=0)
+
+        # (T, H, W, C) -> (B, C, T, H, W)
+        warped_tensor = torch.from_numpy(
+            warped_np.transpose(3, 0, 1, 2)
+        ).float().unsqueeze(0)
+
+        if batch_size > 1:
+            warped_tensor = warped_tensor.repeat(batch_size, 1, 1, 1, 1)
+
+        warped_tensor = warped_tensor.to(comfy.model_management.intermediate_device())
+
+        return io.NodeOutput({"samples": warped_tensor})
+
+
+class Noise_FromLatent:
+    """Wraps a pre-computed LATENT tensor as a NOISE source."""
+    def __init__(self, latent_dict):
+        self.seed = 0
+        self._samples = latent_dict["samples"]
+
+    def generate_noise(self, input_latent):
+        return self._samples.clone().cpu()
+
+
+class VOIDWarpedNoiseSource(io.ComfyNode):
+    """Convert a LATENT (e.g. from VOIDWarpedNoise) into a NOISE source
+    for use with SamplerCustomAdvanced."""
+
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="VOIDWarpedNoiseSource",
+            category="sampling/custom_sampling/noise",
+            inputs=[
+                io.Latent.Input("warped_noise",
+                    tooltip="Warped noise latent from VOIDWarpedNoise"),
+            ],
+            outputs=[io.Noise.Output()],
+        )
+
+    @classmethod
+    def execute(cls, warped_noise) -> io.NodeOutput:
+        return io.NodeOutput(Noise_FromLatent(warped_noise))
+
+
 class VOIDExtension(ComfyExtension):
     @override
     async def get_node_list(self) -> list[type[io.ComfyNode]]:
         return [
             VOIDQuadmaskPreprocess,
             VOIDInpaintConditioning,
+            VOIDWarpedNoise,
+            VOIDWarpedNoiseSource,
         ]
 
 
