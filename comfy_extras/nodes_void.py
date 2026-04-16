@@ -306,6 +306,67 @@ class VOIDWarpedNoiseSource(io.ComfyNode):
         return io.NodeOutput(Noise_FromLatent(warped_noise))
 
 
+class VOID_DDIM(comfy.samplers.Sampler):
+    """DDIM sampler for VOID inpainting models.
+
+    VOID was trained with the diffusers CogVideoXDDIMScheduler which operates in
+    alpha-space (input std ≈ 1). The standard KSampler applies noise_scaling that
+    multiplies by sqrt(1+sigma^2) ≈ 4500x, which is incompatible with VOID's
+    training. This sampler skips noise_scaling and implements the DDIM update rule
+    directly using sigma-to-alpha conversion.
+    """
+
+    def sample(self, model_wrap, sigmas, extra_args, callback, noise, latent_image=None, denoise_mask=None, disable_pbar=False):
+        x = noise.to(torch.float32)
+        model_options = extra_args.get("model_options", {})
+        seed = extra_args.get("seed", None)
+        s_in = x.new_ones([x.shape[0]])
+
+        for i in trange(len(sigmas) - 1, disable=disable_pbar):
+            sigma = sigmas[i]
+            sigma_next = sigmas[i + 1]
+
+            denoised = model_wrap(x, sigma * s_in, model_options=model_options, seed=seed)
+
+            if callback is not None:
+                callback(i, denoised, x, len(sigmas) - 1)
+
+            if sigma_next == 0:
+                x = denoised
+            else:
+                alpha_t = 1.0 / (1.0 + sigma ** 2)
+                alpha_prev = 1.0 / (1.0 + sigma_next ** 2)
+
+                pred_eps = (x - (alpha_t ** 0.5) * denoised) / (1.0 - alpha_t) ** 0.5
+                x = (alpha_prev ** 0.5) * denoised + (1.0 - alpha_prev) ** 0.5 * pred_eps
+
+        return x
+
+
+class VOIDSampler(io.ComfyNode):
+    """VOID DDIM sampler for use with SamplerCustom / SamplerCustomAdvanced.
+
+    Required for VOID inpainting models. Implements the same DDIM loop that VOID
+    was trained with (diffusers CogVideoXDDIMScheduler), without the noise_scaling
+    that the standard KSampler applies. Use with RandomNoise or VOIDWarpedNoiseSource.
+    """
+
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="VOIDSampler",
+            category="sampling/custom_sampling/samplers",
+            inputs=[],
+            outputs=[io.Sampler.Output()],
+        )
+
+    @classmethod
+    def execute(cls) -> io.NodeOutput:
+        return io.NodeOutput(VOID_DDIM())
+
+    get_sampler = execute
+
+
 class VOIDExtension(ComfyExtension):
     @override
     async def get_node_list(self) -> list[type[io.ComfyNode]]:
@@ -314,6 +375,7 @@ class VOIDExtension(ComfyExtension):
             VOIDInpaintConditioning,
             VOIDWarpedNoise,
             VOIDWarpedNoiseSource,
+            VOIDSampler,
         ]
 
 
