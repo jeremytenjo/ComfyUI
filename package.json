@@ -1,5 +1,6 @@
 {
   "scripts": {
-    "dev": "python3 main.py --enable-manager"
+    "dev": "npm run dev:kill && python3 main.py --enable-manager",
+    "dev:kill": "sh -c 'pids=$(lsof -ti tcp:8188); [ -n \"$pids\" ] && kill $pids || echo \"No process listening on port 8188\"'"
   }
 }
