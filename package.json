@@ -1,5 +1,5 @@
 {
   "scripts": {
-    "dev": "COMFYUI_DTD_HOT_RELOAD=1 python3 main.py --enable-manager"
+    "dev": "python3 main.py --enable-manager"
   }
 }
